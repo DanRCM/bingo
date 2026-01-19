@@ -29,7 +29,6 @@ function App() {
   const [socketReady, setSocketReady] = useState(false);
   const [showStartModal, setShowStartModal] = useState(true);
   const [bingoCards, setBingoCards] = useState([]);
-  console.log(bingoCards)
   const [selectedCardIndex, setSelectedCardIndex] = useState(0);
   const [currentWord, setCurrentWord] = useState('');
   const [showLoadModal, setShowLoadModal] = useState(false);
@@ -174,7 +173,16 @@ function App() {
       {showLoadModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <h2>Load Bingo Cards</h2>
+            <div className="modal-header">
+              <h2>Load Bingo Cards</h2>
+              <button 
+                onClick={() => setShowLoadModal(false)} 
+                className="modal-close-btn"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
             <div className="load-options">
               <div className="load-section">
                 <h3>Upload from File</h3>
