@@ -35,21 +35,12 @@ function App() {
   const [manualInput, setManualInput] = useState('');
   const [manualCardId, setManualCardId] = useState('');
   const [isTransmitting, setIsTransmitting] = useState(false);
-
-  useEffect(() => {
-    if (socketRef.current) return;
-
-    const socket = new WebSocket(wsUrl);
-    socketRef.current = socket;
-
-    socket.onopen = () => setSocketReady(true);
-    socket.onclose = () => setSocketReady(false);
-
-    return () => {
-      socket.close();
-      socketRef.current = null;
-    };
-  }, []);
+  const [userName, setUserName] = useState('');
+  const [currentLanguage, setCurrentLanguage] = useState('');
+  const [playerCount, setPlayerCount] = useState(0);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [showWinnersModal, setShowWinnersModal] = useState(false);
+  const [winners, setWinners] = useState(null);
 
   useEffect(() => {
     if (!showStartModal && bingoCards.length === 0) {
@@ -57,13 +48,117 @@ function App() {
     }
   }, [showStartModal, bingoCards.length]);
 
-  // Placeholder function - you'll implement the actual socket sending logic
+  // Setup websocket when name is submitted
+  function setupWebSocket(name) {
+    if (socketRef.current) return;
+
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      setSocketReady(true);
+      // Send user name
+      socket.send(JSON.stringify({ type: 'register', user: name }));
+    };
+
+    socket.onclose = () => {
+      setSocketReady(false);
+      // Reload page on disconnect
+      window.location.reload();
+    };
+
+    socket.onerror = () => {
+      setSocketReady(false);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleWebSocketMessage(data);
+      } catch (e) {
+        console.error('Error parsing websocket message:', e);
+      }
+    };
+  }
+
+  function handleWebSocketMessage(data) {
+    switch (data.type) {
+      case 'player_count':
+        setPlayerCount(data.count);
+        break;
+      case 'game_started':
+        setGameStarted(true);
+        break;
+      case 'round_start':
+        setCurrentLanguage(data.language);
+        break;
+      case 'word_selected':
+        setCurrentWord(data.word);
+        // Mark word on cards (data.card_ids contains list of card IDs that should be marked)
+        setBingoCards(prevCards => {
+          const updated = prevCards.map(card => {
+            // Check if this card should be marked (word is in card's words and card_id is in the list)
+            if (data.card_ids && data.card_ids.includes(card.id) && card.words.includes(data.word)) {
+              const markedWords = card.markedWords || [];
+              if (!markedWords.includes(data.word)) {
+                return { ...card, markedWords: [...markedWords, data.word] };
+              }
+            }
+            return card;
+          });
+          
+          // Auto-select card with most marked words after marking
+          // Prefer cards matching the current language
+          setTimeout(() => {
+            let maxMarked = 0;
+            let bestIndex = 0;
+            let maxMarkedForLanguage = 0;
+            let bestIndexForLanguage = 0;
+            
+            updated.forEach((card, index) => {
+              const markedCount = card.markedWords ? card.markedWords.length : 0;
+              if (markedCount > maxMarked) {
+                maxMarked = markedCount;
+                bestIndex = index;
+              }
+              // Prefer cards matching current language
+              if (card.language === data.language && markedCount > maxMarkedForLanguage) {
+                maxMarkedForLanguage = markedCount;
+                bestIndexForLanguage = index;
+              }
+            });
+            
+            // Use language-specific card if available, otherwise use any card with most marks
+            setSelectedCardIndex(maxMarkedForLanguage > 0 ? bestIndexForLanguage : bestIndex);
+          }, 0);
+          
+          return updated;
+        });
+        break;
+      case 'round_end':
+        setCurrentWord('');
+        setCurrentLanguage('');
+        break;
+      case 'game_end':
+        setWinners(data.winners);
+        setShowWinnersModal(true);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Send bingo card to server
   function sendBingoCard(card) {
-    // TODO: Implement socket sending logic here
-    // This is just a placeholder for UI logic
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      // You'll implement this
-      console.log(card);
+      socketRef.current.send(JSON.stringify({
+        type: 'bingo_card',
+        card: {
+          id: card.id,
+          words: card.words,
+          language: card.language
+        }
+      }));
     }
   }
 
@@ -120,13 +215,25 @@ function App() {
   }
 
   function registerUser(formData) {
-    if (!socketReady) return;
+    const name = formData.get("name");
+    if (!name) return;
 
-    socketRef.current.send(
-      JSON.stringify({ user: formData.get("name") })
-    );
-
+    setUserName(name);
+    setupWebSocket(name);
     setShowStartModal(false);
+  }
+
+  function handleDisconnect() {
+    if (socketRef.current) {
+      socketRef.current.close();
+    }
+    window.location.reload();
+  }
+
+  function handlePlay() {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'play' }));
+    }
   }
 
   function parseTxtFile(content) {
@@ -145,7 +252,7 @@ function App() {
       if (words.length === 0) continue;
 
       const language = detectLanguage(words.length);
-      cards.push({ id, words, language, transmitted: false });
+      cards.push({ id, words, language, transmitted: false, markedWords: [] });
     }
 
     return cards;
@@ -179,7 +286,7 @@ function App() {
     if (words.length === 0) return;
 
     const language = detectLanguage(words.length);
-    const card = { id: manualCardId.trim(), words, language, transmitted: false };
+    const card = { id: manualCardId.trim(), words, language, transmitted: false, markedWords: [] };
     // Add new card (it has transmitted: false by default)
     setBingoCards([...bingoCards, card]);
     setManualInput('');
@@ -191,6 +298,7 @@ function App() {
     if (!card) return null;
 
     const config = LANGUAGE_CONFIGS[card.language];
+    const markedWords = card.markedWords || [];
     const gridStyle = {
       display: 'grid',
       gridTemplateColumns: `repeat(${config.cols}, 1fr)`,
@@ -204,13 +312,17 @@ function App() {
         <div className="bingo-card-header">
           <h3>Card ID: {card.id}</h3>
           <span className="language-badge">{card.language}</span>
+          <span className="marked-count">{markedWords.length}/{card.words.length} marked</span>
         </div>
         <div className="bingo-card-grid" style={gridStyle}>
-          {card.words.map((word, index) => (
-            <div key={index} className="bingo-cell">
-              {word}
-            </div>
-          ))}
+          {card.words.map((word, index) => {
+            const isMarked = markedWords.includes(word);
+            return (
+              <div key={index} className={`bingo-cell ${isMarked ? 'marked' : ''}`}>
+                {word}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -299,22 +411,37 @@ function App() {
               <h2>Current Word</h2>
               <div className="current-word">{currentWord || 'Waiting...'}</div>
             </div>
+            <div className="top-bar-info">
+              {currentLanguage && (
+                <div className="language-display">
+                  Round: <span className="language-name">{currentLanguage.toUpperCase()}</span>
+                </div>
+              )}
+              <div className="player-count">
+                Players: {playerCount}
+              </div>
+            </div>
             <div className="top-bar-right">
-              {bingoCards.length > 0 && (
+              {bingoCards.length > 0 && !gameStarted && (
                 <div className="transmission-status">
                   {transmittedCount < bingoCards.length ? (
                     <div className="loading-status">
                       {transmittedCount}/{bingoCards.length} bingo cards loaded
                     </div>
                   ) : (
-                    <button onClick={() => {/* TODO: Handle play */}} className="play-btn">
+                    <button onClick={handlePlay} className="play-btn">
                       PLAY
                     </button>
                   )}
                 </div>
               )}
-              <button onClick={() => setShowLoadModal(true)} className="add-card-btn">
-                + Add Card
+              {!gameStarted && (
+                <button onClick={() => setShowLoadModal(true)} className="add-card-btn">
+                  + Add Card
+                </button>
+              )}
+              <button onClick={handleDisconnect} className="disconnect-btn">
+                Disconnect
               </button>
             </div>
           </div>
@@ -351,6 +478,37 @@ function App() {
                   <p>Load a bingo card to get started</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWinnersModal && winners && (
+        <div className="modal-overlay">
+          <div className="modal winners-modal">
+            <div className="modal-header">
+              <h2>Game Over!</h2>
+            </div>
+            <div className="winners-content">
+              {winners.length === 1 ? (
+                <div className="single-winner">
+                  <h3>Winner!</h3>
+                  <p>{winners[0]}</p>
+                </div>
+              ) : (
+                <div className="draw">
+                  <h3>Draw!</h3>
+                  <p>{winners.length} winners:</p>
+                  <ul>
+                    {winners.map((winner, idx) => (
+                      <li key={idx}>{winner}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <button onClick={handleDisconnect} className="disconnect-btn">
+                Disconnect & Reload
+              </button>
             </div>
           </div>
         </div>

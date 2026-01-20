@@ -458,6 +458,107 @@
   border-color: #646cff;
 }
 
+.bingo-cell.marked {
+  background: #22c55e;
+  color: #fff;
+  font-weight: bold;
+}
+
+.bingo-cell.marked:hover {
+  background: #16a34a;
+}
+
+.marked-count {
+  padding: 0.25rem 0.75rem;
+  background: #646cff;
+  color: #fff;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  margin-left: 0.5rem;
+}
+
+.top-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.language-display {
+  padding: 0.5rem 1rem;
+  background: #2a2a2a;
+  border-radius: 8px;
+  font-size: 1rem;
+  border: 1px solid #444;
+}
+
+.language-name {
+  color: #646cff;
+  font-weight: bold;
+  text-transform: capitalize;
+}
+
+.player-count {
+  padding: 0.5rem 1rem;
+  background: #2a2a2a;
+  border-radius: 8px;
+  font-size: 1rem;
+  border: 1px solid #444;
+}
+
+.disconnect-btn {
+  padding: 0.75rem 1.5rem;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.disconnect-btn:hover {
+  background: #dc2626;
+}
+
+.winners-modal {
+  max-width: 500px;
+}
+
+.winners-content {
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.winners-content h3 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  color: #22c55e;
+}
+
+.single-winner p,
+.draw p {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.draw ul {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.draw li {
+  padding: 0.5rem;
+  font-size: 1.2rem;
+  background: #2a2a2a;
+  margin: 0.5rem 0;
+  border-radius: 8px;
+}
+
+.winners-content .disconnect-btn {
+  margin-top: 2rem;
+}
+
 /* Scrollbar Styles */
 .cards-list::-webkit-scrollbar,
 .main-card-area::-webkit-scrollbar {
