@@ -1,11 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css'
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL;
+// Get server URL from environment variable
+// For local development: VITE_SERVER_URL=http://localhost:8000
+// For production: VITE_SERVER_URL=https://your-domain.com
+// If not set, uses current window origin
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || window.location.origin;
+
+// Helper function to get WebSocket URL
+function getWebSocketUrl(userId) {
+  let wsUrl;
+  
+  // If SERVER_URL is a full URL (http:// or https://)
+  if (SERVER_URL.startsWith('http://')) {
+    wsUrl = SERVER_URL.replace('http://', 'ws://');
+  } else if (SERVER_URL.startsWith('https://')) {
+    wsUrl = SERVER_URL.replace('https://', 'wss://');
+  } else {
+    // If it's just a hostname or empty, use current protocol
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    wsUrl = `${protocol}//${SERVER_URL || window.location.host}`;
+  }
+  
+  return `${wsUrl}/ws/${userId}`;
+}
 
 const userUUID = crypto.randomUUID();
-const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-const wsUrl = `${protocol}://${SERVER_URL}/ws/${userUUID}`;
 
 // Language configurations
 const LANGUAGE_CONFIGS = {
@@ -52,6 +72,7 @@ function App() {
   function setupWebSocket(name) {
     if (socketRef.current) return;
 
+    const wsUrl = getWebSocketUrl(userUUID);
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
 

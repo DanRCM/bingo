@@ -1,5 +1,4 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
 import json
 import random
 import asyncio
@@ -299,6 +298,3 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except Exception as e:
         print(f"Error: {e}")
         await game_manager.remove_user(client_id)
-
-
-app.mount("/", StaticFiles(directory="dist", html=True), name="reactapp")
