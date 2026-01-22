@@ -87,8 +87,7 @@ function App() {
 
     socket.onclose = () => {
       setSocketReady(false);
-      // Optional: Add a small delay before reload to prevent infinite loops if server is down
-      setTimeout(() => window.location.reload(), 1000);
+      window.location.reload();
     };
 
     socket.onerror = () => {
@@ -322,7 +321,7 @@ function App() {
       padding: isThumbnail ? '10px' : '20px', 
     };
 
-    const cellStyle = {
+    const baseCellStyle = {
         fontSize: isThumbnail ? '0.75rem' : '1rem',
         padding: isThumbnail ? '2px' : '10px',
         minHeight: isThumbnail ? '30px' : 'auto',
@@ -331,8 +330,6 @@ function App() {
         justifyContent: 'center',
         textAlign: 'center',
         wordBreak: 'break-word',
-        backgroundColor: '#4ade80', // Ensure green background is visible
-        color: 'white', // Ensure text is visible
         borderRadius: '4px'
     };
 
@@ -352,11 +349,20 @@ function App() {
         <div className="bingo-card-grid" style={gridStyle}>
           {card.words.map((word, index) => {
             const isMarked = markedWords.includes(word);
+            
+            // Conditional styling for the thumbnail/grid
+            const finalStyle = {
+                ...baseCellStyle,
+                backgroundColor: isMarked ? '#4ade80' : '#ffffff', 
+                color: isMarked ? 'white' : '#1e293b',
+                border: isThumbnail ? '1px solid #e2e8f0' : undefined 
+            };
+
             return (
               <div 
                 key={index} 
                 className={`bingo-cell ${isMarked ? 'marked' : ''}`}
-                style={cellStyle}
+                style={finalStyle}
               >
                 {word}
               </div>
@@ -539,10 +545,9 @@ function App() {
                 <div className="winners-list-detailed">
                   <h3>¡BINGO! Ganadores:</h3>
                   
-                  {/* Changed to CSS Grid for better multi-item handling */}
                   <div className="winners-cards-container" style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
                     gap: '20px',
                     padding: '10px',
                     justifyContent: 'center'
