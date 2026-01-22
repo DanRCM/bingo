@@ -141,6 +141,7 @@ function App() {
       
       case 'round_end':
         setCurrentWord('');
+        console.log("Ganadores recibidos:", data.winners); // DEBUG PARA VERIFICAR
         setRoundResults({
             winners: data.winners || [],
             language: data.language

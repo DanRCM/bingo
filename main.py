@@ -6,9 +6,11 @@ from typing import Dict, List, Set, Optional
 from collections import defaultdict
 from fastapi.middleware.cors import CORSMiddleware
 
+print("--- BACKEND ACTUALIZADO: ENVIANDO CARTONES Y LISTO ---") # BUSCA ESTO EN LOS LOGS DE RENDER
+
 app = FastAPI()
 
-# Configuración de CORS para permitir conexión desde Vercel
+# Configuración de CORS permisiva para evitar bloqueos en Vercel
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -94,7 +96,7 @@ class GameManager:
 
     async def remove_user(self, user_id: str):
         if user_id in self.users:
-            # Nota: No borramos las palabras del set global para no afectar a otros jugadores
+            # No borramos palabras del set global para no romper el juego a otros
             del self.users[user_id]
             await self.broadcast_player_count()
 
@@ -153,7 +155,7 @@ class GameManager:
             word = random.choice(available_words)
             available_words.remove(word)
 
-            # --- CORRECCIÓN CRÍTICA: Usamos list() para evitar errores de concurrencia ---
+            # Usamos list() para evitar errores si alguien se desconecta en medio del bucle
             for user_id, user in list(self.users.items()):
                 marked_card_ids = user.mark_word(word, language)
                 await self.send_to_user(
@@ -168,11 +170,12 @@ class GameManager:
 
             winners_details = [] 
 
-            # --- CORRECCIÓN CRÍTICA: Usamos list() aquí también ---
+            # Usamos list() aquí también por seguridad
             for user_id, user in list(self.users.items()):
                 completed_cards = user.get_completed_cards(language)
                 
                 for card in completed_cards:
+                    # AQUÍ ESTÁ LA CLAVE: Enviamos el OBJETO completo, no solo el nombre
                     winners_details.append({
                         "name": user.name,
                         "card": {
@@ -184,8 +187,10 @@ class GameManager:
                     })
 
             if winners_details:
+                # Guardamos solo nombres para el final global
                 self.winners.extend([w["name"] for w in winners_details])
                 
+                # Enviamos detalles completos para el modal de ronda
                 await self.broadcast(
                     {
                         "type": "round_end",
@@ -228,7 +233,7 @@ class GameManager:
     async def broadcast(self, message: dict):
         message_str = json.dumps(message)
         disconnected = []
-        # Usamos list() para evitar errores si alguien se desconecta durante el envío
+        # list() para iteración segura
         for user_id, user in list(self.users.items()):
             try:
                 await user.websocket.send_text(message_str)
