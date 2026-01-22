@@ -44,19 +44,15 @@ class User:
         self.id = user_id
         self.name = name
         self.websocket = websocket
-        self.cards: Dict[str, BingoCard] = {}  # card_id -> BingoCard
-        self.word_to_cards: Dict[str, List[str]] = defaultdict(
-            list
-        )  # word -> [card_ids]
+        self.cards: Dict[str, BingoCard] = {}
+        self.word_to_cards: Dict[str, List[str]] = defaultdict(list)
 
     def add_card(self, card: BingoCard):
         self.cards[card.id] = card
-        # Update word-to-cards mapping for fast lookup
         for word in card.words:
             self.word_to_cards[word].append(card.id)
 
     def mark_word(self, word: str, language: str) -> List[str]:
-        """Mark word on all relevant cards. Returns list of card IDs that were marked."""
         marked_card_ids = []
         if word in self.word_to_cards:
             for card_id in self.word_to_cards[word]:
@@ -67,7 +63,6 @@ class User:
         return marked_card_ids
 
     def get_completed_cards(self, language: str) -> List[BingoCard]:
-        """Get all completed cards for a specific language."""
         completed = []
         for card in self.cards.values():
             if card.language == language and card.is_complete():
@@ -75,7 +70,6 @@ class User:
         return completed    
 
     def get_card_with_most_marks(self, language: str) -> Optional[BingoCard]:
-        """Get the card with the most marked words for a given language."""
         best_card = None
         max_marks = -1
         for card in self.cards.values():
@@ -87,14 +81,12 @@ class User:
         return best_card
 
     def has_completed_card(self, language: str) -> bool:
-        """Check if user has a completed card for a given language."""
         for card in self.cards.values():
             if card.language == language and card.is_complete():
                 return True
         return False
 
     def remove_words_from_sets(self, language_to_words: Dict[str, Set[str]]):
-        """Remove user's words from the language word sets when disconnecting."""
         for card in self.cards.values():
             for word in card.words:
                 if word in language_to_words.get(card.language, set()):
@@ -103,7 +95,7 @@ class User:
 
 class GameManager:
     def __init__(self):
-        self.users: Dict[str, User] = {}  # user_id -> User
+        self.users: Dict[str, User] = {}
         self.language_word_sets: Dict[str, Set[str]] = {
             "spanish": set(),
             "english": set(),
@@ -123,13 +115,11 @@ class GameManager:
 
     async def remove_user(self, user_id: str):
         if user_id in self.users:
-            user = self.users[user_id]
-            # Remove user's words from language sets
-            user.remove_words_from_sets(self.language_word_sets)
+            # NOTA: No eliminamos las palabras del set global. 
+            # Si un usuario se va, sus palabras deben seguir en juego para los demás.
             del self.users[user_id]
             await self.broadcast_player_count()
 
-            # If no users left, reset game
             if len(self.users) == 0:
                 self.reset_game()
 
@@ -141,7 +131,6 @@ class GameManager:
         card = BingoCard(card_data["id"], card_data["words"], card_data["language"])
         user.add_card(card)
 
-        # Add words to language word set
         language = card.language
         for word in card.words:
             self.language_word_sets[language].add(word)
@@ -150,16 +139,12 @@ class GameManager:
         if self.game_started:
             return
 
-        # Randomize order of languages
         languages = ["spanish", "english", "portuguese", "dutch"]
         self.round_languages = random.sample(languages, len(languages))
         self.current_language_index = 0
         self.game_started = True
 
-        # Notify all users
         await self.broadcast({"type": "game_started"})
-
-        # Start first round
         await self.start_round()
 
     async def start_round(self):
@@ -170,7 +155,6 @@ class GameManager:
         language = self.round_languages[self.current_language_index]
         self.current_round = language
 
-        # Notify all users
         await self.broadcast(
             {
                 "type": "round_start",
@@ -180,25 +164,20 @@ class GameManager:
             }
         )
 
-        # Start word selection loop
         await self.round_loop()
 
     async def round_loop(self):
         language = self.current_round
         word_set = self.language_word_sets.get(language, set())
-
-        # Convert to list for random selection
         available_words = list(word_set)
 
         while available_words:
-            # Select random word
             word = random.choice(available_words)
             available_words.remove(word)
 
-            # Mark word on all users' cards and send personalized messages
-            for user_id, user in self.users.items():
+            # Iteramos sobre una COPIA de la lista (list(items)) para evitar errores si alguien se desconecta
+            for user_id, user in list(self.users.items()):
                 marked_card_ids = user.mark_word(word, language)
-                # Send personalized message to this user
                 await self.send_to_user(
                     user_id,
                     {
@@ -209,11 +188,10 @@ class GameManager:
                     },
                 )
 
-            # Check for winners
             winners_details = [] 
 
-            for user_id, user in self.users.items():
-                # Get all completed cards for this language
+            # Aquí también usamos list() para la iteración segura
+            for user_id, user in list(self.users.items()):
                 completed_cards = user.get_completed_cards(language)
                 
                 for card in completed_cards:
@@ -223,15 +201,13 @@ class GameManager:
                             "id": card.id,
                             "words": card.words,
                             "language": card.language,
-                            "markedWords": list(card.marked_words) # Convert set to list for JSON serialization
+                            "markedWords": list(card.marked_words)
                         }
                     })
 
             if winners_details:
-                # Update global winners list (names only)
                 self.winners.extend([w["name"] for w in winners_details])
                 
-                # Broadcast round results to all clients
                 await self.broadcast(
                     {
                         "type": "round_end",
@@ -240,33 +216,25 @@ class GameManager:
                     }
                 )
                 
-                # Wait before next round
-                await asyncio.sleep(5) 
+                await asyncio.sleep(8) # Damos tiempo para ver el modal
                 self.current_language_index += 1
                 await self.start_round()
                 return
 
-            # Wait before next word
             await asyncio.sleep(2)
 
-        # No more words, move to next round
         await self.broadcast({"type": "round_end", "language": language, "winners": []})
-        await asyncio.sleep(2)
+        await asyncio.sleep(5)
         self.current_language_index += 1
         await self.start_round()
 
     async def end_game(self):
-        # Count winners by name
         winner_counts = defaultdict(int)
         for winner in self.winners:
             winner_counts[winner] += 1
 
-        # Get unique winners
         unique_winners = list(winner_counts.keys())
-
         await self.broadcast({"type": "game_end", "winners": unique_winners})
-
-        # Reset game state
         self.reset_game()
 
     def reset_game(self):
@@ -275,7 +243,6 @@ class GameManager:
         self.round_languages = []
         self.current_language_index = 0
         self.winners = []
-        # Clear all marked words from cards
         for user in self.users.values():
             for card in user.cards.values():
                 card.marked_words.clear()
@@ -283,13 +250,13 @@ class GameManager:
     async def broadcast(self, message: dict):
         message_str = json.dumps(message)
         disconnected = []
-        for user_id, user in self.users.items():
+        # Usamos list() aquí también por seguridad
+        for user_id, user in list(self.users.items()):
             try:
                 await user.websocket.send_text(message_str)
             except:
                 disconnected.append(user_id)
 
-        # Remove disconnected users
         for user_id in disconnected:
             await self.remove_user(user_id)
 
@@ -315,10 +282,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     print(f"Connection accepted: {client_id}")
 
     try:
-        # Main loop to handle messages
         while True:
             data = await websocket.receive_json()
-            print(f"Message received from {client_id}: {data}")
+            # print(f"Message received from {client_id}: {data}") 
 
             msg_type = data.get("type")
 
@@ -330,9 +296,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             elif msg_type == "bingo_card":
                 if client_id in game_manager.users:
                     await game_manager.add_card(client_id, data.get("card", {}))
-                    print(f"Card received for {client_id}")
                 else:
-                    print(f"WARNING: User {client_id} tried to send card without registration")
+                    print(f"WARNING: User {client_id} unregistered card")
 
             elif msg_type == "play":
                 if not game_manager.game_started:
