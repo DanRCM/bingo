@@ -4,9 +4,22 @@ import random
 import asyncio
 from typing import Dict, List, Set, Optional
 from collections import defaultdict
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class BingoCard:
     def __init__(self, card_id: str, words: List[str], language: str):
@@ -52,6 +65,14 @@ class User:
                     card.mark_word(word)
                     marked_card_ids.append(card_id)
         return marked_card_ids
+
+    def get_completed_cards(self, language: str) -> List[BingoCard]:
+        """Get all completed cards for a specific language."""
+        completed = []
+        for card in self.cards.values():
+            if card.language == language and card.is_complete():
+                completed.append(card)
+        return completed    
 
     def get_card_with_most_marks(self, language: str) -> Optional[BingoCard]:
         """Get the card with the most marked words for a given language."""
@@ -188,23 +209,39 @@ class GameManager:
                     },
                 )
 
-            # Check if any user completed a card
-            winners_this_round = []
-            for user_id, user in self.users.items():
-                if user.has_completed_card(language):
-                    winners_this_round.append(user.name)
+            # Check for winners
+            winners_details = [] 
 
-            if winners_this_round:
-                self.winners.extend(winners_this_round)
+            for user_id, user in self.users.items():
+                # Get all completed cards for this language
+                completed_cards = user.get_completed_cards(language)
+                
+                for card in completed_cards:
+                    winners_details.append({
+                        "name": user.name,
+                        "card": {
+                            "id": card.id,
+                            "words": card.words,
+                            "language": card.language,
+                            "markedWords": list(card.marked_words) # Convert set to list for JSON serialization
+                        }
+                    })
+
+            if winners_details:
+                # Update global winners list (names only)
+                self.winners.extend([w["name"] for w in winners_details])
+                
+                # Broadcast round results to all clients
                 await self.broadcast(
                     {
                         "type": "round_end",
                         "language": language,
-                        "winners": winners_this_round,
+                        "winners": winners_details,
                     }
                 )
-                # Wait a bit before next round
-                await asyncio.sleep(2)
+                
+                # Wait before next round
+                await asyncio.sleep(5) 
                 self.current_language_index += 1
                 await self.start_round()
                 return
@@ -273,28 +310,40 @@ game_manager = GameManager()
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    print(f"Connection attempt: {client_id}") 
     await websocket.accept()
+    print(f"Connection accepted: {client_id}")
 
     try:
-        # Wait for user registration
-        data = await websocket.receive_json()
-        if data.get("type") == "register":
-            user_name = data.get("user", "Unknown")
-            await game_manager.add_user(client_id, user_name, websocket)
-
-        # Handle messages
+        # Main loop to handle messages
         while True:
             data = await websocket.receive_json()
+            print(f"Message received from {client_id}: {data}")
 
-            if data.get("type") == "bingo_card":
-                await game_manager.add_card(client_id, data.get("card", {}))
+            msg_type = data.get("type")
 
-            elif data.get("type") == "play":
+            if msg_type == "register":
+                user_name = data.get("user", "Unknown")
+                await game_manager.add_user(client_id, user_name, websocket)
+                print(f"User Registered: {user_name} ({client_id})")
+            
+            elif msg_type == "bingo_card":
+                if client_id in game_manager.users:
+                    await game_manager.add_card(client_id, data.get("card", {}))
+                    print(f"Card received for {client_id}")
+                else:
+                    print(f"WARNING: User {client_id} tried to send card without registration")
+
+            elif msg_type == "play":
                 if not game_manager.game_started:
+                    print("Starting game...")
                     await game_manager.start_game()
+                else:
+                    print("Game already started")
 
     except WebSocketDisconnect:
+        print(f"User disconnected: {client_id}")
         await game_manager.remove_user(client_id)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Critical error with {client_id}: {e}")
         await game_manager.remove_user(client_id)

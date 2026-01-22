@@ -5,7 +5,7 @@ import './App.css'
 // For local development: VITE_SERVER_URL=http://localhost:8000
 // For production: VITE_SERVER_URL=https://your-domain.com
 // If not set, uses current window origin
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || window.location.origin;
+const SERVER_URL = "http://localhost:8000";
 
 // Helper function to get WebSocket URL
 function getWebSocketUrl(userId) {
@@ -62,6 +62,10 @@ function App() {
   const [showWinnersModal, setShowWinnersModal] = useState(false);
   const [winners, setWinners] = useState(null);
 
+  // Round results state
+  const [showRoundModal, setShowRoundModal] = useState(false);
+  const [roundResults, setRoundResults] = useState({ winners: [], language: '' });
+
   useEffect(() => {
     if (!showStartModal && bingoCards.length === 0) {
       setShowLoadModal(true);
@@ -78,13 +82,11 @@ function App() {
 
     socket.onopen = () => {
       setSocketReady(true);
-      // Send user name
       socket.send(JSON.stringify({ type: 'register', user: name }));
     };
 
     socket.onclose = () => {
       setSocketReady(false);
-      // Reload page on disconnect
       window.location.reload();
     };
 
@@ -115,10 +117,8 @@ function App() {
         break;
       case 'word_selected':
         setCurrentWord(data.word);
-        // Mark word on cards (data.card_ids contains list of card IDs that should be marked)
         setBingoCards(prevCards => {
           const updated = prevCards.map(card => {
-            // Check if this card should be marked (word is in card's words and card_id is in the list)
             if (data.card_ids && data.card_ids.includes(card.id) && card.words.includes(data.word)) {
               const markedWords = card.markedWords || [];
               if (!markedWords.includes(data.word)) {
@@ -128,8 +128,6 @@ function App() {
             return card;
           });
           
-          // Auto-select card with most marked words after marking
-          // Prefer cards matching the current language
           setTimeout(() => {
             let maxMarked = 0;
             let bestIndex = 0;
@@ -142,34 +140,38 @@ function App() {
                 maxMarked = markedCount;
                 bestIndex = index;
               }
-              // Prefer cards matching current language
               if (card.language === data.language && markedCount > maxMarkedForLanguage) {
                 maxMarkedForLanguage = markedCount;
                 bestIndexForLanguage = index;
               }
             });
             
-            // Use language-specific card if available, otherwise use any card with most marks
             setSelectedCardIndex(maxMarkedForLanguage > 0 ? bestIndexForLanguage : bestIndex);
           }, 0);
           
           return updated;
         });
         break;
+      
       case 'round_end':
         setCurrentWord('');
-        setCurrentLanguage('');
+        setRoundResults({
+            winners: data.winners || [],
+            language: data.language
+        });
+        setShowRoundModal(true);
         break;
+
       case 'game_end':
         setWinners(data.winners);
         setShowWinnersModal(true);
+        setShowRoundModal(false); 
         break;
       default:
         break;
     }
   }
 
-  // Send bingo card to server
   function sendBingoCard(card) {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({
@@ -183,19 +185,13 @@ function App() {
     }
   }
 
-  // Calculate transmitted count from cards
   const transmittedCount = bingoCards.filter(card => card.transmitted === true).length;
 
-  // Effect to handle card transmission - only trigger when new cards are added
   useEffect(() => {
-    if (bingoCards.length === 0) {
-      return;
-    }
+    if (bingoCards.length === 0) return;
 
-    // Check if there are untransmitted cards
     const hasUntransmitted = bingoCards.some(card => !card.transmitted);
 
-    // Start transmitting if there are untransmitted cards and we're not already transmitting
     if (hasUntransmitted && !isTransmitting) {
       setIsTransmitting(true);
       transmitNextCard();
@@ -203,9 +199,7 @@ function App() {
   }, [bingoCards.length]);
 
   function transmitNextCard() {
-    // Get current cards from state to avoid stale closures
     setBingoCards(prevCards => {
-      // Find the first card that hasn't been transmitted
       const untransmittedIndex = prevCards.findIndex(card => !card.transmitted);
 
       if (untransmittedIndex === -1) {
@@ -216,12 +210,10 @@ function App() {
       const card = prevCards[untransmittedIndex];
       sendBingoCard(card);
 
-      // Mark card as transmitted
       const updatedCards = prevCards.map((c, idx) => 
         idx === untransmittedIndex ? { ...c, transmitted: true } : c
       );
 
-      // Continue with next card after a small delay
       setTimeout(() => {
         const hasMoreUntransmitted = updatedCards.some(card => !card.transmitted);
         if (hasMoreUntransmitted) {
@@ -265,7 +257,7 @@ function App() {
 
     for (const line of lines) {
       const parts = line.trim().split(/\s+/);
-      if (parts.length < 2) continue; // Need at least ID + one word
+      if (parts.length < 2) continue;
 
       const id = parts[0];
       const words = parts.slice(1);
@@ -288,13 +280,12 @@ function App() {
       const content = e.target.result;
       const newCards = parseTxtFile(content);
       if (newCards.length > 0) {
-        // Add new cards (they have transmitted: false by default)
         setBingoCards([...bingoCards, ...newCards]);
         setShowLoadModal(false);
       }
     };
     reader.readAsText(file);
-    event.target.value = ''; // Reset input
+    event.target.value = '';
   }
 
   function handleManualSubmit() {
@@ -308,38 +299,61 @@ function App() {
 
     const language = detectLanguage(words.length);
     const card = { id: manualCardId.trim(), words, language, transmitted: false, markedWords: [] };
-    // Add new card (it has transmitted: false by default)
     setBingoCards([...bingoCards, card]);
     setManualInput('');
     setManualCardId('');
     setShowLoadModal(false);
   }
 
-  function BingoCardGrid({ card }) {
+  // Component to render the bingo grid
+  function BingoCardGrid({ card, isThumbnail = false }) {
     if (!card) return null;
 
     const config = LANGUAGE_CONFIGS[card.language];
     const markedWords = card.markedWords || [];
+    
+    // Dynamic styles for thumbnail view
     const gridStyle = {
       display: 'grid',
       gridTemplateColumns: `repeat(${config.cols}, 1fr)`,
       gridTemplateRows: `repeat(${config.rows}, 1fr)`,
-      gap: '8px',
-      padding: '20px',
+      gap: isThumbnail ? '4px' : '8px', 
+      padding: isThumbnail ? '10px' : '20px', 
+    };
+
+    const cellStyle = {
+        fontSize: isThumbnail ? '0.75rem' : '1rem',
+        padding: isThumbnail ? '2px' : '10px',
+        minHeight: isThumbnail ? '30px' : 'auto',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        wordBreak: 'break-word'
     };
 
     return (
-      <div className="bingo-card-container">
-        <div className="bingo-card-header">
-          <h3>Card ID: {card.id}</h3>
-          <span className="language-badge">{card.language}</span>
-          <span className="marked-count">{markedWords.length}/{card.words.length} marked</span>
+      <div className="bingo-card-container" style={{ width: '100%' }}>
+        <div className="bingo-card-header" style={{ marginBottom: isThumbnail ? '5px' : '15px' }}>
+          <h3 style={{ fontSize: isThumbnail ? '1.1rem' : '1.5rem', margin: '5px 0' }}>
+            {isThumbnail ? `${card.id}` : `Card ID: ${card.id}`}
+          </h3>
+          <span className="language-badge" style={{ fontSize: isThumbnail ? '0.7rem' : '0.9rem', padding: '2px 8px' }}>
+            {card.language}
+          </span>
+          <span className="marked-count" style={{ fontSize: isThumbnail ? '0.7rem' : '0.9rem' }}>
+            {markedWords.length}/{card.words.length} {isThumbnail ? '' : 'marked'}
+          </span>
         </div>
         <div className="bingo-card-grid" style={gridStyle}>
           {card.words.map((word, index) => {
             const isMarked = markedWords.includes(word);
             return (
-              <div key={index} className={`bingo-cell ${isMarked ? 'marked' : ''}`}>
+              <div 
+                key={index} 
+                className={`bingo-cell ${isMarked ? 'marked' : ''}`}
+                style={cellStyle}
+              >
                 {word}
               </div>
             );
@@ -504,23 +518,84 @@ function App() {
         </div>
       )}
 
+      {/* Round Results Modal */}
+      {showRoundModal && (
+        <div className="modal-overlay">
+          <div className="modal winners-modal" style={{ maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-header">
+              <h2>Fin de la ronda: {roundResults.language.toUpperCase()}</h2>
+            </div>
+            
+            <div className="winners-content">
+              {roundResults.winners.length === 0 ? (
+                <div className="no-winners">
+                  <h3>No hubo ganadores en esta ronda.</h3>
+                </div>
+              ) : (
+                <div className="winners-list-detailed">
+                  <h3>¡BINGO! Ganadores:</h3>
+                  
+                  <div className="winners-cards-container" style={{
+                    display: 'flex', 
+                    flexWrap: 'wrap',
+                    gap: '15px', 
+                    padding: '10px',
+                    justifyContent: 'center',
+                    alignItems: 'flex-start'
+                  }}>
+                    {roundResults.winners.map((winnerData, idx) => (
+                      <div key={idx} className="winner-card-entry" style={{
+                        border: '2px solid #FFD700', 
+                        borderRadius: '10px',
+                        padding: '10px',
+                        background: '#fff9e6',
+                        width: '100%',
+                        maxWidth: '350px',
+                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                      }}>
+                        <h4 style={{color: '#d35400', margin: '0 0 10px 0'}}>
+                          🏆 {winnerData.name}
+                        </h4>
+                        <BingoCardGrid card={winnerData.card} isThumbnail={true} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <p style={{marginTop: '20px', fontStyle: 'italic'}}>
+                Preparando siguiente idioma...
+              </p>
+              <button onClick={() => setShowRoundModal(false)} className="close-btn">
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Over Modal */}
       {showWinnersModal && winners && (
         <div className="modal-overlay">
           <div className="modal winners-modal">
             <div className="modal-header">
-              <h2>Game Over!</h2>
+              <h2>¡Juego Terminado!</h2>
             </div>
             <div className="winners-content">
-              {winners.length === 1 ? (
+              {winners.length === 0 ? (
+                 <div className="no-winners">
+                    <h3>Nadie ganó el bingo final.</h3>
+                 </div>
+              ) : winners.length === 1 ? (
                 <div className="single-winner">
-                  <h3>Winner!</h3>
-                  <p>{winners[0]}</p>
+                  <h3>¡Gran Ganador!</h3>
+                  <p className="winner-name">{winners[0]}</p>
                 </div>
               ) : (
                 <div className="draw">
-                  <h3>Draw!</h3>
-                  <p>{winners.length} winners:</p>
-                  <ul>
+                  <h3>¡Empate!</h3>
+                  <p>{winners.length} ganadores:</p>
+                  <ul className="winners-list-final">
                     {winners.map((winner, idx) => (
                       <li key={idx}>{winner}</li>
                     ))}
@@ -528,7 +603,7 @@ function App() {
                 </div>
               )}
               <button onClick={handleDisconnect} className="disconnect-btn">
-                Disconnect & Reload
+                Desconectar y Reiniciar
               </button>
             </div>
           </div>
