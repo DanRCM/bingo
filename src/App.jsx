@@ -5,7 +5,7 @@ import './App.css'
 // For local development: VITE_SERVER_URL=http://localhost:8000
 // For production: VITE_SERVER_URL=https://your-domain.com
 // If not set, uses current window origin
-const SERVER_URL = "http://localhost:8000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:8000";
 
 // Helper function to get WebSocket URL
 function getWebSocketUrl(userId) {
