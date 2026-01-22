@@ -87,7 +87,8 @@ function App() {
 
     socket.onclose = () => {
       setSocketReady(false);
-      window.location.reload();
+      // Optional: Add a small delay before reload to prevent infinite loops if server is down
+      setTimeout(() => window.location.reload(), 1000);
     };
 
     socket.onerror = () => {
@@ -329,7 +330,10 @@ function App() {
         alignItems: 'center',
         justifyContent: 'center',
         textAlign: 'center',
-        wordBreak: 'break-word'
+        wordBreak: 'break-word',
+        backgroundColor: '#4ade80', // Ensure green background is visible
+        color: 'white', // Ensure text is visible
+        borderRadius: '4px'
     };
 
     return (
@@ -535,13 +539,13 @@ function App() {
                 <div className="winners-list-detailed">
                   <h3>¡BINGO! Ganadores:</h3>
                   
+                  {/* Changed to CSS Grid for better multi-item handling */}
                   <div className="winners-cards-container" style={{
-                    display: 'flex', 
-                    flexWrap: 'wrap',
-                    gap: '15px', 
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                    gap: '20px',
                     padding: '10px',
-                    justifyContent: 'center',
-                    alignItems: 'flex-start'
+                    justifyContent: 'center'
                   }}>
                     {roundResults.winners.map((winnerData, idx) => (
                       <div key={idx} className="winner-card-entry" style={{
@@ -549,12 +553,10 @@ function App() {
                         borderRadius: '10px',
                         padding: '10px',
                         background: '#fff9e6',
-                        width: '100%',
-                        maxWidth: '350px',
                         boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
                       }}>
                         <h4 style={{color: '#d35400', margin: '0 0 10px 0'}}>
-                          🏆 {winnerData.name}
+                          🏆 {winnerData.name || 'Unknown'}
                         </h4>
                         <BingoCardGrid card={winnerData.card} isThumbnail={true} />
                       </div>
