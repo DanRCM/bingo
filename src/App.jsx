@@ -323,10 +323,7 @@ function App() {
             };
 
             return (
-              <div 
-                key={index} 
-                style={finalStyle}
-              >
+              <div key={index} style={finalStyle}>
                 {word}
               </div>
             );

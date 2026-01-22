@@ -8,11 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
+# Configuración de CORS para permitir conexión desde Vercel
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -69,23 +65,6 @@ class User:
                 completed.append(card)
         return completed    
 
-    def get_card_with_most_marks(self, language: str) -> Optional[BingoCard]:
-        best_card = None
-        max_marks = -1
-        for card in self.cards.values():
-            if card.language == language:
-                marked_count = card.get_marked_count()
-                if marked_count > max_marks:
-                    max_marks = marked_count
-                    best_card = card
-        return best_card
-
-    def has_completed_card(self, language: str) -> bool:
-        for card in self.cards.values():
-            if card.language == language and card.is_complete():
-                return True
-        return False
-
     def remove_words_from_sets(self, language_to_words: Dict[str, Set[str]]):
         for card in self.cards.values():
             for word in card.words:
@@ -115,8 +94,7 @@ class GameManager:
 
     async def remove_user(self, user_id: str):
         if user_id in self.users:
-            # NOTA: No eliminamos las palabras del set global. 
-            # Si un usuario se va, sus palabras deben seguir en juego para los demás.
+            # Nota: No borramos las palabras del set global para no afectar a otros jugadores
             del self.users[user_id]
             await self.broadcast_player_count()
 
@@ -175,7 +153,7 @@ class GameManager:
             word = random.choice(available_words)
             available_words.remove(word)
 
-            # Iteramos sobre una COPIA de la lista (list(items)) para evitar errores si alguien se desconecta
+            # --- CORRECCIÓN CRÍTICA: Usamos list() para evitar errores de concurrencia ---
             for user_id, user in list(self.users.items()):
                 marked_card_ids = user.mark_word(word, language)
                 await self.send_to_user(
@@ -190,7 +168,7 @@ class GameManager:
 
             winners_details = [] 
 
-            # Aquí también usamos list() para la iteración segura
+            # --- CORRECCIÓN CRÍTICA: Usamos list() aquí también ---
             for user_id, user in list(self.users.items()):
                 completed_cards = user.get_completed_cards(language)
                 
@@ -216,7 +194,7 @@ class GameManager:
                     }
                 )
                 
-                await asyncio.sleep(8) # Damos tiempo para ver el modal
+                await asyncio.sleep(8) 
                 self.current_language_index += 1
                 await self.start_round()
                 return
@@ -250,7 +228,7 @@ class GameManager:
     async def broadcast(self, message: dict):
         message_str = json.dumps(message)
         disconnected = []
-        # Usamos list() aquí también por seguridad
+        # Usamos list() para evitar errores si alguien se desconecta durante el envío
         for user_id, user in list(self.users.items()):
             try:
                 await user.websocket.send_text(message_str)
@@ -277,38 +255,26 @@ game_manager = GameManager()
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    print(f"Connection attempt: {client_id}") 
     await websocket.accept()
-    print(f"Connection accepted: {client_id}")
-
+    
     try:
         while True:
             data = await websocket.receive_json()
-            # print(f"Message received from {client_id}: {data}") 
-
             msg_type = data.get("type")
 
             if msg_type == "register":
                 user_name = data.get("user", "Unknown")
                 await game_manager.add_user(client_id, user_name, websocket)
-                print(f"User Registered: {user_name} ({client_id})")
             
             elif msg_type == "bingo_card":
                 if client_id in game_manager.users:
                     await game_manager.add_card(client_id, data.get("card", {}))
-                else:
-                    print(f"WARNING: User {client_id} unregistered card")
-
+            
             elif msg_type == "play":
                 if not game_manager.game_started:
-                    print("Starting game...")
                     await game_manager.start_game()
-                else:
-                    print("Game already started")
 
     except WebSocketDisconnect:
-        print(f"User disconnected: {client_id}")
         await game_manager.remove_user(client_id)
-    except Exception as e:
-        print(f"Critical error with {client_id}: {e}")
+    except Exception:
         await game_manager.remove_user(client_id)
